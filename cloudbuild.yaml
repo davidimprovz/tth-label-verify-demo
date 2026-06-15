@@ -40,7 +40,8 @@ steps:
            '--no-gpu-zonal-redundancy', '--min-instances=0', '--max-instances=1',
            '--concurrency=1', '--timeout=300', '--no-cpu-throttling',
            '--execution-environment=gen2', '--ingress=internal',
-           '--allow-unauthenticated', '--set-env-vars=OLLAMA_KEEP_ALIVE=30m']
+           '--allow-unauthenticated',
+           '--set-env-vars=OLLAMA_KEEP_ALIVE=30m,OLLAMA_LLM_LIBRARY=cuda_v11']
 
   # --- deploy backend (reads the GPU URL, wires the env) ---
   - id: deploy-backend
@@ -53,10 +54,10 @@ steps:
         gcloud run deploy ttb-label-verifier \
           --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA \
           --region=${_REGION} --service-account=${_BACKEND_SA} --port=8000 \
-          --cpu=2 --memory=2Gi --min-instances=1 --max-instances=10 \
-          --concurrency=4 --cpu-boost --allow-unauthenticated \
-          --network=default --subnet=default --vpc-egress=private-ranges-only \
-          --set-env-vars=TTB_VLM_ENABLED=true,OLLAMA_BASE_URL=$$VLM_URL,TTB_VLM_MODEL=${_VLM_MODEL},TTB_VLM_CONCURRENCY=1,TTB_MAX_CONCURRENCY=4
+          --cpu=2 --memory=2Gi --min-instances=0 --max-instances=10 \
+          --concurrency=8 --cpu-boost --allow-unauthenticated \
+          --network=default --subnet=default --vpc-egress=all-traffic \
+          --set-env-vars=TTB_VLM_ENABLED=true,OLLAMA_BASE_URL=$$VLM_URL,TTB_VLM_MODEL=${_VLM_MODEL},TTB_VLM_NUM_CTX=8192,TTB_VLM_CONCURRENCY=1,TTB_MAX_CONCURRENCY=8,TTB_MIN_IMAGE_LONG_EDGE=0
 
 images:
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA'
