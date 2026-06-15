@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ttb_label_verifier"
+version = "0.1.0"
+description = "AI app that verifies an alcohol label image against submitted application data."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "David Williams" }]
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    # multipart/form-data parsing for the upload endpoints (Apache-2.0).
+    "python-multipart>=0.0.9",
+    "rapidfuzz>=3.0",
+    "pint>=0.23",
+    # OCR tier (the deployed app runs OCR). Both Apache-2.0 (permissive).
+    "opencv-python-headless>=4.9",
+    "rapidocr-onnxruntime>=1.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.27",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pip-licenses>=4.4",
+    # Pillow renders the synthetic test-label fixture (generate_label.py).
+    "pillow>=10.0",
+]
+# Optional async VLM refinement tier (Phase 2). Both MIT; pure-Python (no torch),
+# so the CPU image stays lean. Lazy-imported — only loaded when TTB_VLM_ENABLED.
+vlm = [
+    "langchain>=0.3",
+    "langchain-ollama>=0.2",
+]
+
+[project.scripts]
+check-licenses = "scripts.check_licenses:main"
+
+[tool.setuptools]
+packages = ["backend", "backend.models", "backend.services", "scripts"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+ignore_missing_imports = true

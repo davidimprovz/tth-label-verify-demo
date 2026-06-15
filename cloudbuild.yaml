@@ -1,0 +1,66 @@
+# Cloud Build: build + push both images and deploy on push to the cloud-run
+# branch. The one-time GitHub->Cloud Build connection and the IAM roles the
+# Cloud Build SA needs (run.admin, iam.serviceAccountUser, artifactregistry.writer)
+# live in the local-only deploy runbook. Verify GPU flags against the deployed gcloud.
+substitutions:
+  _REGION: us-central1
+  _REPO: ttb
+  _VLM_MODEL: qwen3-vl:2b-instruct
+  _BACKEND_SA: ttb-backend-runtime@$PROJECT_ID.iam.gserviceaccount.com
+  _VLM_SA: ttb-vlm-runtime@$PROJECT_ID.iam.gserviceaccount.com
+
+steps:
+  # --- backend image (multi-stage: builds the UI + lean backend) ---
+  - id: build-backend
+    name: gcr.io/cloud-builders/docker
+    args: ['build', '-f', 'backend/Dockerfile',
+           '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA', '.']
+  - id: push-backend
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA']
+
+  # --- GPU Ollama image (bakes qwen3-vl:2b-instruct) ---
+  - id: build-vlm
+    name: gcr.io/cloud-builders/docker
+    args: ['build', '-f', 'deploy/vlm-ollama/Dockerfile',
+           '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/vlm-ollama:$SHORT_SHA',
+           'deploy/vlm-ollama']
+  - id: push-vlm
+    name: gcr.io/cloud-builders/docker
+    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/vlm-ollama:$SHORT_SHA']
+
+  # --- deploy GPU (scale-to-zero L4, internal ingress) ---
+  - id: deploy-vlm
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args: ['run', 'deploy', 'ttb-vlm-gpu',
+           '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/vlm-ollama:$SHORT_SHA',
+           '--region=${_REGION}', '--service-account=${_VLM_SA}', '--port=11434',
+           '--cpu=4', '--memory=16Gi', '--gpu=1', '--gpu-type=nvidia-l4',
+           '--no-gpu-zonal-redundancy', '--min-instances=0', '--max-instances=1',
+           '--concurrency=1', '--timeout=300', '--no-cpu-throttling',
+           '--execution-environment=gen2', '--ingress=internal',
+           '--allow-unauthenticated', '--set-env-vars=OLLAMA_KEEP_ALIVE=30m']
+
+  # --- deploy backend (reads the GPU URL, wires the env) ---
+  - id: deploy-backend
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        VLM_URL=$(gcloud run services describe ttb-vlm-gpu --region=${_REGION} --format='value(status.url)')
+        gcloud run deploy ttb-label-verifier \
+          --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA \
+          --region=${_REGION} --service-account=${_BACKEND_SA} --port=8000 \
+          --cpu=2 --memory=2Gi --min-instances=1 --max-instances=10 \
+          --concurrency=4 --cpu-boost --allow-unauthenticated \
+          --network=default --subnet=default --vpc-egress=private-ranges-only \
+          --set-env-vars=TTB_VLM_ENABLED=true,OLLAMA_BASE_URL=$$VLM_URL,TTB_VLM_MODEL=${_VLM_MODEL},TTB_VLM_CONCURRENCY=1,TTB_MAX_CONCURRENCY=4
+
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/vlm-ollama:$SHORT_SHA'
+options:
+  machineType: E2_HIGHCPU_8
+timeout: 2400s
