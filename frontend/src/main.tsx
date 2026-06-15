@@ -20,6 +20,12 @@ window.addEventListener('focus', warmup)
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') warmup()
 })
+// Heartbeat: while the tab is visible, re-ping every 5 min so the GPU's idle
+// timer + Ollama keep_alive keep resetting and the model stays resident through
+// an active session. Stops pinging when the tab is hidden → GPU scales to zero.
+setInterval(() => {
+  if (document.visibilityState === 'visible') warmup()
+}, 5 * 60 * 1000)
 
 // A QueryClient is wired at the root now so later data-fetching tasks can plug
 // in without restructuring the app shell.

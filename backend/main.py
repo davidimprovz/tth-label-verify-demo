@@ -112,27 +112,47 @@ def config() -> dict[str, bool]:
 
 @app.post("/api/warmup")
 async def warmup() -> dict[str, bool]:
-    """Wake the GPU VLM service early (the frontend pings this on page load / focus)
-    so its Cloud Run scale-from-zero cold start overlaps with the reviewer entering
-    data, hiding the GPU spin-up. Best-effort and returns immediately; a no-op when
-    the VLM tier is off. The frontend never reaches the GPU service directly.
+    """Pre-load the GPU VLM model early (the frontend pings this on page load /
+    focus, then on a heartbeat) so the Cloud Run scale-from-zero cold start AND
+    the model→VRAM load both overlap with the reviewer entering data, hiding the
+    GPU spin-up. Best-effort and returns immediately; a no-op when the VLM tier is
+    off. The frontend never reaches the GPU service directly.
     """
     import asyncio
+    import json
     import urllib.request
 
     if not settings.vlm_enabled():
         return {"warming": False}
 
-    def _ping() -> None:
+    def _preload() -> None:
+        # An empty-prompt /api/generate makes Ollama load the model into VRAM and
+        # hold it for keep_alive — a root ping only wakes the container, leaving
+        # the ~minute model load for the reviewer's first refine. num_ctx must
+        # match the inference call so the same model instance is reused.
         try:
-            with urllib.request.urlopen(settings.OLLAMA_BASE_URL, timeout=3) as resp:
-                resp.read(1)
-        except Exception:  # noqa: BLE001 — the connection attempt alone wakes it
+            body = json.dumps(
+                {
+                    "model": settings.VLM_MODEL,
+                    "prompt": "",
+                    "keep_alive": "30m",
+                    "options": {"num_ctx": settings.VLM_NUM_CTX},
+                }
+            ).encode()
+            req = urllib.request.Request(
+                settings.OLLAMA_BASE_URL.rstrip("/") + "/api/generate",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=180) as resp:
+                resp.read()
+        except Exception:  # noqa: BLE001 — best-effort; a failed warm = a cold first call
             pass
 
-    # Fire-and-forget so the request returns at once; the cold start proceeds async.
-    asyncio.create_task(asyncio.to_thread(_ping))
-    logger.debug("event=warmup target=%s", settings.OLLAMA_BASE_URL)
+    # Fire-and-forget so the request returns at once; the load proceeds async.
+    asyncio.create_task(asyncio.to_thread(_preload))
+    logger.debug("event=warmup.preload model=%s target=%s", settings.VLM_MODEL, settings.OLLAMA_BASE_URL)
     return {"warming": True}
 
 
