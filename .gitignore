@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+
+# Models & data (never commit weights or eval images)
+# Anchor to repo root so backend/models/ (source code) is NOT ignored.
+*.pt
+*.onnx
+*.gguf
+/models/
+data/
+# COLA registry study corpus + manifest (local-only; never redistribute).
+data/cola/
+eval/data/
+
+# Env & secrets
+.env
+*.env
+
+# OS
+.DS_Store
+
+# Local tool artifacts
+memories.json
+
+# AI assistant & dev-tool artifacts (never commit)
+.claude/
+.claude-personal/
+CLAUDE.md
+.gemini/
+GEMINI.md
+.codex/
+AGENTS.md
+.cursor/
+.aider*
+.continue/
+.playwright-mcp/
+.mcp.json
+*.tmp
+
+# Operational runbooks (local-only; deploy details never pushed)
+*.local.md
+
+# Local-only research & tooling — NOT published to GitHub from main.
+# The app builds/validates from the cloud-run branch; these stay on disk only.
+eval/
+scripts/
+docs/
+deploy/
+Dockerfile.bench
+# Tests that exercise the local-only research tooling (scripts.*/eval.*).
+tests/test_cola_fetcher.py
+tests/test_cola_sampler.py
+tests/test_check_licenses.py
+tests/test_scoring.py
+tests/fixtures/cola/
+
+# Certs & keys (never publish)
+*.pem
+*.key
+*.crt

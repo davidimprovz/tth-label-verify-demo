@@ -1,0 +1,299 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   Treasury Engraved — design tokens
+   U.S. Treasury currency-luxury meets modern fintech. Deep navy canvas, sharp
+   gold accents, currency-seal green/amber/red status. Anchored to official
+   Treasury seal / flag colors.
+   ========================================================================== */
+:root {
+  /* Navy canvas (Treasury deep blue, PMS 540) */
+  --navy-900: #00141f;
+  --navy-800: #00263a;
+  --navy-700: #013a57;
+  --navy-600: #0a4d6e;
+
+  /* Status greens (currency-seal green = PASS) */
+  --green: #046a38;
+  --green-bright: #1fa45c;
+
+  /* Shield gold — accents / hairlines / CTAs */
+  --gold: #c8a951;
+  --gold-bright: #daaa00;
+  --gold-soft: #e6d08a;
+
+  /* Info / processing (PMS 292) */
+  --blue-light: #69b3e7;
+
+  /* Status amber (REVIEW) / red (FAIL) */
+  --amber: #d99a2b;
+  --red: #b3402f;
+
+  /* Surfaces / ink */
+  --parchment: #f7f4ec;
+  --ink: #0b1a24;
+
+  /* Glass — translucent navy for backdrop-blur panels */
+  --glass: rgba(1, 32, 50, 0.55);
+  --glass-border: rgba(200, 169, 81, 0.28);
+
+  /* Accessibility: rem base scale (large-font mode bumps this). */
+  --font-scale: 1;
+
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+/* Drive every rem-based size off the scale var so one toggle enlarges all type. */
+html {
+  font-size: calc(100% * var(--font-scale));
+}
+
+/* ----------------------------------------------------------------------------
+   Accessibility modes (toggled via data-* on <html>, persisted to localStorage).
+   Both reuse the existing tokens — no per-component overrides.
+   -------------------------------------------------------------------------- */
+
+/* Font-size scale (Standard / Large / Largest). Large is the default. */
+html[data-fontscale="md"] {
+  --font-scale: 1;
+}
+html[data-fontscale="lg"] {
+  --font-scale: 1.14;
+}
+html[data-fontscale="xl"] {
+  --font-scale: 1.3;
+}
+
+/* High-contrast mode: brighten surfaces/ink and strengthen status colors so
+   text and borders meet a higher contrast bar against the navy canvas. */
+html[data-contrast="high"] {
+  --parchment: #ffffff;
+  --gold: #e3c768;
+  --gold-soft: #f3e6b8;
+  --green-bright: #34d27b;
+  --amber: #f1b53e;
+  --red: #e85c46;
+  --glass: rgba(1, 32, 50, 0.78);
+  --glass-border: rgba(227, 199, 104, 0.55);
+}
+
+/* Firmer glass borders + readable body text in high-contrast mode. */
+html[data-contrast="high"] body {
+  color: var(--parchment);
+}
+html[data-contrast="high"] .glass {
+  border-color: var(--glass-border);
+}
+html[data-contrast="high"] .hairline-gold {
+  border-color: rgba(227, 199, 104, 0.6);
+}
+
+body {
+  margin: 0;
+  font-family: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  color: var(--parchment);
+  background-color: var(--navy-900);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ----------------------------------------------------------------------------
+   Atmosphere: layered deep-navy gradient mesh + guilloché engraving lines +
+   light grain. Rendered once on a fixed full-viewport backdrop so panels float
+   above it with depth.
+   -------------------------------------------------------------------------- */
+.atmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 800px at 12% -8%, rgba(10, 77, 110, 0.55), transparent 60%),
+    radial-gradient(1000px 700px at 92% 8%, rgba(1, 58, 87, 0.5), transparent 62%),
+    radial-gradient(1400px 1000px at 70% 110%, rgba(4, 106, 56, 0.16), transparent 60%),
+    linear-gradient(160deg, var(--navy-900) 0%, var(--navy-800) 45%, var(--navy-900) 100%);
+}
+
+/* Fine banknote line-work, very low opacity. */
+.atmosphere::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/guilloche.svg");
+  background-size: 540px 540px;
+  opacity: 0.05;
+  mix-blend-mode: screen;
+}
+
+/* Subtle film grain so flat areas never look plasticky. */
+.atmosphere::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+
+/* ----------------------------------------------------------------------------
+   Glass panel + gold hairline. Composable utility used by every zone card.
+   -------------------------------------------------------------------------- */
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  /* Thick gold edge so panels clearly guide the eye (accessibility). */
+  border: 3px solid var(--glass-border);
+  box-shadow:
+    0 1px 0 0 rgba(230, 208, 138, 0.08) inset,
+    0 18px 50px -20px rgba(0, 0, 0, 0.65);
+}
+
+.hairline-gold {
+  border: 2.5px solid rgba(200, 169, 81, 0.45);
+}
+
+/* Solid, high-contrast surface for centered modals (help, shortcuts, walkthrough)
+   so body text stands out instead of fighting the blurred atmosphere behind. */
+.modal-surface {
+  background: linear-gradient(180deg, #021d2c 0%, #00141f 100%);
+  border: 3px solid var(--glass-border);
+  box-shadow:
+    0 1px 0 0 rgba(230, 208, 138, 0.1) inset,
+    0 30px 80px -24px rgba(0, 0, 0, 0.85);
+}
+html[data-contrast="high"] .modal-surface {
+  background: linear-gradient(180deg, #052537 0%, #001925 100%);
+  border-color: var(--glass-border);
+}
+
+/* Engraved text — subtle pressed-into-metal effect for big display type. */
+.engraved {
+  text-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.45),
+    0 -1px 0 rgba(230, 208, 138, 0.08);
+}
+
+/* Gold gradient text for accents / wordmark. */
+.text-gold-gradient {
+  background: linear-gradient(180deg, var(--gold-soft) 0%, var(--gold) 55%, #a8842f 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ----------------------------------------------------------------------------
+   Live "working" scan-line shimmer for queue items / in-flight verification.
+   -------------------------------------------------------------------------- */
+@keyframes scanline {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+.shimmer-scan {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer-scan::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    rgba(105, 179, 231, 0.18) 45%,
+    rgba(218, 170, 0, 0.22) 50%,
+    rgba(105, 179, 231, 0.18) 55%,
+    transparent 80%
+  );
+  animation: scanline 1.6s ease-in-out infinite;
+}
+
+/* Soft ring pulse used behind the verdict seal on resolve. */
+@keyframes ringPulse {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.55;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+/* ----------------------------------------------------------------------------
+   ProgressBar — indeterminate sweep + soft sheen over a determinate fill.
+   -------------------------------------------------------------------------- */
+@keyframes progressSweep {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+.progress-indeterminate {
+  animation: progressSweep 1.25s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes progressSheen {
+  0% {
+    transform: translateX(-130%);
+  }
+  100% {
+    transform: translateX(230%);
+  }
+}
+.progress-sheen {
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(247, 244, 236, 0.45) 50%,
+    transparent 70%
+  );
+  animation: progressSheen 1.8s ease-in-out infinite;
+}
+
+/* ----------------------------------------------------------------------------
+   Focus + accessibility. Always-visible gold focus ring for keyboard users.
+   -------------------------------------------------------------------------- */
+:where(a, button, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Thin gold scrollbars to match the engraved aesthetic. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(200, 169, 81, 0.4) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(200, 169, 81, 0.35);
+  border-radius: 8px;
+}
+
+/* Honor reduced-motion: disable decorative + orchestrated animation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

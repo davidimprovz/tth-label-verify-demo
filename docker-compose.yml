@@ -1,0 +1,54 @@
+services:
+  backend:
+    build:
+      # Build context is the repo root so pyproject.toml and the backend/
+      # package are both available to the image.
+      context: .
+      dockerfile: backend/Dockerfile
+    image: ttb-label-verifier-backend
+    environment:
+      # Flip to 1/true to emit DEBUG-level logs to docker logs (stdout).
+      - DEBUG=${DEBUG:-0}
+      # Low-resolution images are allowed (the UI shows a soft warning instead of
+      # blocking); 0 disables the hard intake reject. Override to re-enable.
+      - TTB_MIN_IMAGE_LONG_EDGE=${TTB_MIN_IMAGE_LONG_EDGE:-0}
+      # Optional async VLM refinement tier (Phase 2) — OFF by default. Flip
+      # TTB_VLM_ENABLED=1 AND point OLLAMA_BASE_URL at a server to switch it on.
+      # Default OLLAMA_BASE_URL is empty so the tier is inert unless configured.
+      - TTB_VLM_ENABLED=${TTB_VLM_ENABLED:-0}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - TTB_VLM_MODEL=${TTB_VLM_MODEL:-qwen3-vl:2b-instruct}
+      - TTB_VLM_NUM_CTX=${TTB_VLM_NUM_CTX:-8192}
+      - TTB_VLM_CONCURRENCY=${TTB_VLM_CONCURRENCY:-1}
+      - TTB_VLM_TIMEOUT=${TTB_VLM_TIMEOUT:-60}
+      # Max labels per batch (whole-folder uploads). Worst-case staged bytes =
+      # this * the per-image cap, so keep it sane for the host.
+      - TTB_MAX_BATCH_IMAGES=${TTB_MAX_BATCH_IMAGES:-300}
+    extra_hosts:
+      # Lets the container reach a host-native Ollama via host.docker.internal
+      # when OLLAMA_BASE_URL points there. Harmless when the tier is off.
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount source for dev so code changes are visible without a rebuild.
+      - ./backend:/app/backend
+      - ./tests:/app/tests
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: ttb-label-verifier-frontend
+    ports:
+      # Host 5180 → container 5173. Host 5173 is commonly taken by other local
+      # Vite projects; the container port stays the conventional 5173.
+      - "5180:5173"
+    volumes:
+      # Mount source for hot-reload. The anonymous volume keeps the image's
+      # node_modules from being shadowed by the host bind mount.
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
