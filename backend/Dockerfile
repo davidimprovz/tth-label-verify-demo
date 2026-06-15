@@ -6,7 +6,12 @@
 FROM node:20-slim AS frontend
 WORKDIR /ui
 COPY frontend/package.json frontend/package-lock.json* ./
-RUN npm ci
+# `npm ci` (and `npm install` against an existing lockfile) has a known bug
+# (npm/cli#4828) where a lockfile generated on one OS/arch omits another
+# platform's optional native deps (e.g. rollup's binary), breaking `vite build`
+# on linux/amd64 (Cloud Build). Dropping the lockfile forces a clean resolution
+# that installs the correct platform binary — works on both arm64 and amd64.
+RUN rm -rf node_modules package-lock.json && npm install --no-audit --no-fund
 COPY frontend/ ./
 RUN npm run build
 
