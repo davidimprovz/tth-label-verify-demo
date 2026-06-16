@@ -1,8 +1,10 @@
 """VLM label reader (async refinement tier, Phase 2).
 
-Reads a label with a local vision model served by Ollama, via LangChain
-``ChatOllama.with_structured_output(LabelFields)``. Used by ``services.refine`` to
-re-read the Government Warning + fields the OCR tier couldn't recover.
+Reads a label with a vision model over an OpenAI-compatible chat API, via
+``ChatOpenAI.with_structured_output(LabelFields)``. The server is vLLM in the
+cloud and a host Ollama in local dev (both speak ``/v1``) — point
+``OLLAMA_BASE_URL`` at either. Used by ``services.refine`` to re-read the
+Government Warning + fields the OCR tier couldn't recover.
 
 Conforms to the ``LabelReader`` protocol but, unlike the OCR tier, it returns the
 structured ``fields`` directly (and a text serialization for any text-based use).
@@ -47,38 +49,46 @@ _PROMPT = (
     "warning is printed in bold). Base these on what you actually see."
 )
 
-_MIME_BY_SUFFIX = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".bmp": "image/bmp",
-}
+# Longest-edge cap for the image sent to the VLM. A full-res label becomes
+# thousands of Qwen3-VL vision tokens → tens of seconds of (eager) vision-encode +
+# prefill. Capping here keeps the Government Warning legible (the resolution study
+# shows field/warning recall holds at >=768px) while slashing inference latency.
+_VLM_MAX_EDGE = 1024
 
 
 def _data_url(image: bytes | str | np.ndarray) -> str:
-    """Encode an image (bytes / path / BGR ndarray) as a base64 data URL.
+    """Decode an image (bytes / path / BGR ndarray), downscale its longest edge to
+    ``_VLM_MAX_EDGE``, and return it as a base64 PNG data URL.
 
-    LangChain forwards the data URL to Ollama (stripping the prefix). We send the
-    color image as-is; field-aware downscaling is layered on by the caller.
+    Both vLLM (cloud) and Ollama (dev) accept an OpenAI-style image data URL. The
+    downscale is the single biggest VLM latency lever — full-res labels explode the
+    vision-token count.
     """
-    if isinstance(image, np.ndarray):
-        import cv2
+    import cv2
 
-        ok, buf = cv2.imencode(".png", image)
-        if not ok:
-            raise ValueError("could not encode ndarray image")
-        b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
-        return f"data:image/png;base64,{b64}"
-    if isinstance(image, (bytes, bytearray)):
-        b64 = base64.b64encode(bytes(image)).decode("utf-8")
-        return f"data:image/png;base64,{b64}"
-    if isinstance(image, str):
-        p = Path(image)
-        mime = _MIME_BY_SUFFIX.get(p.suffix.lower(), "image/png")
-        b64 = base64.b64encode(p.read_bytes()).decode("utf-8")
-        return f"data:{mime};base64,{b64}"
-    raise TypeError(f"unsupported image input type: {type(image)!r}")
+    if isinstance(image, np.ndarray):
+        arr = image
+    elif isinstance(image, (bytes, bytearray)):
+        arr = cv2.imdecode(np.frombuffer(bytes(image), np.uint8), cv2.IMREAD_COLOR)
+    elif isinstance(image, str):
+        arr = cv2.imread(str(Path(image)), cv2.IMREAD_COLOR)
+    else:
+        raise TypeError(f"unsupported image input type: {type(image)!r}")
+    if arr is None:
+        raise ValueError("could not decode image for the VLM")
+
+    h, w = arr.shape[:2]
+    longest = max(h, w)
+    if longest > _VLM_MAX_EDGE:
+        scale = _VLM_MAX_EDGE / longest
+        arr = cv2.resize(
+            arr, (round(w * scale), round(h * scale)), interpolation=cv2.INTER_AREA
+        )
+    ok, buf = cv2.imencode(".png", arr)
+    if not ok:
+        raise ValueError("could not encode image for the VLM")
+    b64 = base64.b64encode(buf.tobytes()).decode("utf-8")
+    return f"data:image/png;base64,{b64}"
 
 
 class VLMLabelReader:
@@ -102,19 +112,25 @@ class VLMLabelReader:
 
     def _build_chain(self):
         if self._chain is None:
-            from langchain_ollama import ChatOllama
+            from langchain_openai import ChatOpenAI
 
-            llm = ChatOllama(
+            # Served by vLLM in the cloud (OpenAI-compatible /v1). Ollama also
+            # speaks /v1, so the same client works against a host Ollama in dev —
+            # point OLLAMA_BASE_URL at either. num_ctx is a server arg (vLLM
+            # --max-model-len), not a client option.
+            llm = ChatOpenAI(
                 model=settings.VLM_MODEL,
-                base_url=settings.OLLAMA_BASE_URL,
+                base_url=settings.OLLAMA_BASE_URL.rstrip("/") + "/v1",
+                api_key="EMPTY",  # vLLM ignores it; required by the client
                 temperature=0.1,
-                num_ctx=settings.VLM_NUM_CTX,
-                num_predict=settings.VLM_NUM_PREDICT,
-                client_kwargs={"timeout": settings.VLM_TIMEOUT_S},
+                max_tokens=settings.VLM_NUM_PREDICT,
+                timeout=settings.VLM_TIMEOUT_S,
             )
-            self._chain = llm.with_structured_output(LabelFields).with_retry(
-                stop_after_attempt=2
-            )
+            # json_schema → vLLM guided decoding forces valid JSON regardless of
+            # the model's free-form tendencies.
+            self._chain = llm.with_structured_output(
+                LabelFields, method="json_schema"
+            ).with_retry(stop_after_attempt=2)
         return self._chain
 
     def read(
@@ -136,7 +152,7 @@ class VLMLabelReader:
             message = HumanMessage(
                 content=[
                     {"type": "text", "text": _PROMPT},
-                    {"type": "image_url", "image_url": _data_url(image)},
+                    {"type": "image_url", "image_url": {"url": _data_url(image)}},
                 ]
             )
             t0 = time.perf_counter()

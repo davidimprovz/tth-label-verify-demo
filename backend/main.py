@@ -119,40 +119,28 @@ async def warmup() -> dict[str, bool]:
     off. The frontend never reaches the GPU service directly.
     """
     import asyncio
-    import json
     import urllib.request
 
     if not settings.vlm_enabled():
         return {"warming": False}
 
     def _preload() -> None:
-        # An empty-prompt /api/generate makes Ollama load the model into VRAM and
-        # hold it for keep_alive — a root ping only wakes the container, leaving
-        # the ~minute model load for the reviewer's first refine. num_ctx must
-        # match the inference call so the same model instance is reused.
+        # vLLM loads the model into VRAM during *server startup*, so it's resident
+        # the moment its /health passes. We only need to trigger the Cloud Run
+        # scale-from-zero — a GET /health wakes the instance and the request blocks
+        # until vLLM is ready, overlapping the spin-up with the reviewer's data
+        # entry. (Ollama in local dev lazy-loads on first call; the heartbeat +
+        # first refine cover that.)
         try:
-            body = json.dumps(
-                {
-                    "model": settings.VLM_MODEL,
-                    "prompt": "",
-                    "keep_alive": "30m",
-                    "options": {"num_ctx": settings.VLM_NUM_CTX},
-                }
-            ).encode()
-            req = urllib.request.Request(
-                settings.OLLAMA_BASE_URL.rstrip("/") + "/api/generate",
-                data=body,
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=180) as resp:
+            url = settings.OLLAMA_BASE_URL.rstrip("/") + "/health"
+            with urllib.request.urlopen(url, timeout=180) as resp:
                 resp.read()
         except Exception:  # noqa: BLE001 — best-effort; a failed warm = a cold first call
             pass
 
-    # Fire-and-forget so the request returns at once; the load proceeds async.
+    # Fire-and-forget so the request returns at once; the wake proceeds async.
     asyncio.create_task(asyncio.to_thread(_preload))
-    logger.debug("event=warmup.preload model=%s target=%s", settings.VLM_MODEL, settings.OLLAMA_BASE_URL)
+    logger.debug("event=warmup.wake target=%s", settings.OLLAMA_BASE_URL)
     return {"warming": True}
 
 

@@ -32,11 +32,12 @@ dev = [
     # Pillow renders the synthetic test-label fixture (generate_label.py).
     "pillow>=10.0",
 ]
-# Optional async VLM refinement tier (Phase 2). Both MIT; pure-Python (no torch),
-# so the CPU image stays lean. Lazy-imported — only loaded when TTB_VLM_ENABLED.
+# Optional async VLM refinement tier (Phase 2). The backend talks to the VLM over
+# an OpenAI-compatible API (vLLM in the cloud, Ollama in local dev) — pure-Python
+# (no torch), so the CPU image stays lean. Lazy-imported — only when TTB_VLM_ENABLED.
 vlm = [
     "langchain>=0.3",
-    "langchain-ollama>=0.2",
+    "langchain-openai>=0.2",
 ]
 
 [project.scripts]

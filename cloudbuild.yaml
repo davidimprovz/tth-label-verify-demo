@@ -5,7 +5,7 @@
 substitutions:
   _REGION: us-central1
   _REPO: ttb
-  _VLM_MODEL: qwen3-vl:2b-instruct
+  _VLM_MODEL: Qwen/Qwen3-VL-2B-Instruct-FP8
   _BACKEND_SA: ttb-backend-runtime@$PROJECT_ID.iam.gserviceaccount.com
   _VLM_SA: ttb-vlm-runtime@$PROJECT_ID.iam.gserviceaccount.com
 
@@ -19,29 +19,28 @@ steps:
     name: gcr.io/cloud-builders/docker
     args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA']
 
-  # --- GPU Ollama image (bakes qwen3-vl:2b-instruct) ---
+  # --- GPU vLLM image (bakes Qwen3-VL-2B-Instruct; OpenAI-compatible server) ---
   - id: build-vlm
     name: gcr.io/cloud-builders/docker
-    args: ['build', '-f', 'deploy/vlm-ollama/Dockerfile',
-           '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/vlm-ollama:$SHORT_SHA',
-           'deploy/vlm-ollama']
+    args: ['build', '-f', 'deploy/vlm-vllm/Dockerfile',
+           '-t', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/vlm-vllm:$SHORT_SHA',
+           'deploy/vlm-vllm']
   - id: push-vlm
     name: gcr.io/cloud-builders/docker
-    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/vlm-ollama:$SHORT_SHA']
+    args: ['push', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/vlm-vllm:$SHORT_SHA']
 
-  # --- deploy GPU (scale-to-zero L4, internal ingress) ---
+  # --- deploy GPU (scale-to-zero L4, internal ingress, port 8080) ---
   - id: deploy-vlm
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
     args: ['run', 'deploy', 'ttb-vlm-gpu',
-           '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/vlm-ollama:$SHORT_SHA',
-           '--region=${_REGION}', '--service-account=${_VLM_SA}', '--port=11434',
+           '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/vlm-vllm:$SHORT_SHA',
+           '--region=${_REGION}', '--service-account=${_VLM_SA}', '--port=8080',
            '--cpu=4', '--memory=16Gi', '--gpu=1', '--gpu-type=nvidia-l4',
            '--no-gpu-zonal-redundancy', '--min-instances=0', '--max-instances=1',
-           '--concurrency=1', '--timeout=300', '--no-cpu-throttling',
+           '--concurrency=4', '--timeout=300', '--no-cpu-throttling',
            '--execution-environment=gen2', '--ingress=internal',
-           '--allow-unauthenticated',
-           '--set-env-vars=OLLAMA_KEEP_ALIVE=30m,OLLAMA_LLM_LIBRARY=cuda_v11']
+           '--allow-unauthenticated', '--labels=budget=ttb-gpu']
 
   # --- deploy backend (reads the GPU URL, wires the env) ---
   - id: deploy-backend
@@ -57,11 +56,12 @@ steps:
           --cpu=2 --memory=2Gi --min-instances=0 --max-instances=10 \
           --concurrency=8 --cpu-boost --allow-unauthenticated \
           --network=default --subnet=default --vpc-egress=all-traffic \
-          --set-env-vars=TTB_VLM_ENABLED=true,OLLAMA_BASE_URL=$$VLM_URL,TTB_VLM_MODEL=${_VLM_MODEL},TTB_VLM_NUM_CTX=8192,TTB_VLM_CONCURRENCY=1,TTB_MAX_CONCURRENCY=8,TTB_MIN_IMAGE_LONG_EDGE=0
+          --set-env-vars=TTB_VLM_ENABLED=true,OLLAMA_BASE_URL=$$VLM_URL,TTB_VLM_MODEL=${_VLM_MODEL},TTB_VLM_CONCURRENCY=1,TTB_MAX_CONCURRENCY=8,TTB_MIN_IMAGE_LONG_EDGE=0
 
 images:
   - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/backend:$SHORT_SHA'
-  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/vlm-ollama:$SHORT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/vlm-vllm:$SHORT_SHA'
 options:
   machineType: E2_HIGHCPU_8
-timeout: 2400s
+  diskSizeGb: 120
+timeout: 3600s
