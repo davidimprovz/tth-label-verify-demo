@@ -209,9 +209,6 @@ inference service is ever in the loop**:
   **verbatim** on legible scans (e.g. izkali, clover_hill); the only misreads were
   on a sub-640px image (below the intake reject floor), and the hybrid's
   expected-value match graded those → review, never a silent pass.
-- **End-to-end:** Playwright UI run against the live URL — upload → instant OCR
-  verdict → async VLM refinement swap-in → verdict, with **0 console errors**; the
-  Government Warning rendered verbatim and every field flagged `[refined by VLM]`.
 
 **Self-improving by design.** The reviewer UI overlays the OCR text boxes on the
 label; each box is clickable to tag its field type. Every correction a reviewer
