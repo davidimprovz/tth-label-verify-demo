@@ -3,8 +3,16 @@
 Checks an alcohol-beverage **label image** against the **expected COLA application
 data** and returns an **accept / review** recommendation — per field and overall.
 It is a decision-support tool for TTB compliance reviewers: anything ambiguous is
-escalated to a human, never silently approved. Deployed as a two-service Cloud Run
-app (a CPU API + a scale-to-zero L4 GPU) — see [Deployment](#deployment-cloud-run).
+escalated to a human, never silently approved.
+
+It runs **two-phase inference with open models** — a lightweight CPU **OCR** pass
+for the instant verdict, plus an open **VLM** (Qwen3-VL) refinement for the hard
+fields — entirely **self-hosted in a closed/private network** (no third-party
+inference API; the GPU has no public endpoint). The footprint is deliberately
+minimalist and **very low cost**: a scale-to-zero GPU that bills ~$0 when idle, so
+the whole thing runs on the order of a few dollars a week (≈$120/yr at the stated
+~150k-applications/yr TTB volume). Deployed as a two-service Cloud Run app (a CPU
+API + a scale-to-zero L4 GPU) — see [Deployment](#deployment-cloud-run).
 
 ## What it does
 
@@ -189,6 +197,21 @@ inference service is ever in the loop**:
    serve the cloud VLM with **vLLM** via CUDA forward-compatibility
    (`VLLM_ENABLE_CUDA_COMPATIBILITY=1`, supported because the L4 is a datacenter GPU),
    in **FP8** with `torch.compile` left on — ~3–4s warm.
+
+**Validation (measured on the live deployment, not just claimed).**
+
+- **Latency:** timed end-to-end against the deployed L4 across several real back
+  labels → **~2.5s pure inference, ~3–4s warm** (matching the M2 baseline); cold
+  scale-from-zero ~60–90s, hidden by the async tier + wake-on-load preload. The
+  tuning path: Ollama/CPU-fallback ~20s → vLLM BF16 14–34s → FP8+eager ~60s →
+  **FP8+compile ~3s**.
+- **FP8 accuracy:** spot-checked the Government Warning on real back labels — read
+  **verbatim** on legible scans (e.g. izkali, clover_hill); the only misreads were
+  on a sub-640px image (below the intake reject floor), and the hybrid's
+  expected-value match graded those → review, never a silent pass.
+- **End-to-end:** Playwright UI run against the live URL — upload → instant OCR
+  verdict → async VLM refinement swap-in → verdict, with **0 console errors**; the
+  Government Warning rendered verbatim and every field flagged `[refined by VLM]`.
 
 **Self-improving by design.** The reviewer UI overlays the OCR text boxes on the
 label; each box is clickable to tag its field type. Every correction a reviewer
